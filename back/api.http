@@ -1,0 +1,39 @@
+http://localhost:4190
+###
+http://localhost:4190/api/products
+###
+
+POST http://localhost:4190/api/users HTTP/1.1
+Content-Type: application/json
+
+{
+  "username": "jongho",
+  "password": "lee1313",
+  "email":"Ethereum@upbitsibal.com",
+  "name": "종호"
+}
+
+###
+http://localhost:4190/api/users
+
+###
+
+http://localhost:4190/api/users/1
+
+{
+  "id" : 1
+}
+
+### 예제
+
+http://localhost:4190/api/users/kozel/products/gucci
+
+###
+
+POST http://localhost:4190/api/users/login
+Content-Type: application/json
+
+{
+  "username": "jongho",
+  "password": "lee1313"
+}
