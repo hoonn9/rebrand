@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { Container, MenuContainer, MenuButton, LogoContainer } from './styles.jsx';
 import HeaderMenu from '@Components/Header/HeaderMenu/index.jsx';
-import LogoImage from '@Assets/Logo/re-logo.png';
+import LogoImage from '@Assets/Layouts/re-logo.png';
 import PropTypes from 'prop-types';
+import { AuthContext } from '@Hooks/Contexts/AuthContext.jsx';
 
-const Header = ({ user }) => {
+const Header = () => {
+  const { user } = useContext(AuthContext);
+
   return (
     <Container>
       <LogoContainer>
@@ -22,12 +25,13 @@ const Header = ({ user }) => {
   );
 };
 
+// typescript에서
 // interface Props {
-//   user: Object
+//   user: object
 // }
 
+// javascript에서
 Header.propTypes = {
-  user: PropTypes.object,
+  user: PropTypes.any,
 };
-
 export default Header;

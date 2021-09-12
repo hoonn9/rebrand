@@ -1,6 +1,5 @@
 import React from 'react';
 import { Container, BannerBox, BannerTitle, BannerSubTitle } from './styles';
-import HomeBannerImage from "@Assets/Layouts/Banner/home-banner.jpg"
 
 const HomeBanner = () => {
   return (
@@ -13,7 +12,6 @@ const HomeBanner = () => {
             <span>FASHION</span>
           </h1>
         </BannerTitle>
-        <img src={HomeBannerImage} />
         <BannerSubTitle>SAVE UP TO 50%</BannerSubTitle>
       </BannerBox>
     </Container>

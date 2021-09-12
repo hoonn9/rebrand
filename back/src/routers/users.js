@@ -3,8 +3,20 @@ const db = require("../db");
 const dayjs = require("dayjs");
 const { emailRegex } = require("../utils/regex.js");
 const bcrypt = require("bcrypt");
+
 const passport = require("passport");
 const { IsLoggedIn } = require("../middlewares/auth");
+const { sendEmail } = require("../utils/email");
+
+const {
+  findUserByVerification,
+  createVerification,
+  sendVerification,
+  findVerification,
+  checkVerifyType,
+  expireVerification,
+  validVerification,
+} = require("../verification/verification");
 
 // JOIN USER
 router.post("/", async (req, res, next) => {
@@ -25,7 +37,7 @@ router.post("/", async (req, res, next) => {
     const isExist = await client.query(
       `
         SELECT * FROM public.User WHERE username = $1 OR email = $2
-    `,
+      `,
       [req.body.username, req.body.email]
     );
 
@@ -35,11 +47,12 @@ router.post("/", async (req, res, next) => {
 
     await client.query(
       `
-        INSERT INTO public.User (username, password, name, email, createdAt)
+        INSERT INTO public.User (username, password, name, "createdAt", email )
         VALUES ($1, $2, $3, $4, $5)
       `,
-      [req.body.username, hashed, req.body.name, req.body.email, now]
+      [req.body.username, hashed, req.body.name, now, req.body.email]
     );
+
     client.release();
 
     return res.json({
@@ -80,7 +93,7 @@ router.get("/:id", async (req, res, next) => {
 
     const result = await client.query(
       `
-        SELECT id, name, email, createdAt FROM public.User WHERE id = $1
+        SELECT id, name, email, "createdAt" FROM public.User WHERE id = $1
       `,
       [parseInt(id)]
     );
@@ -118,10 +131,12 @@ router.post("/login", async (req, res, next) => {
         const client = await db.connect();
         const { rows } = await client.query(
           `
-        SELECT id, email, name, createdAt FROM public.user WHERE id = $1 
+        SELECT id, email, name, "createdAt" FROM public.user WHERE id = $1 
       `,
           [user.id]
         );
+
+        console.log(rows);
 
         client.release();
 
@@ -132,21 +147,6 @@ router.post("/login", async (req, res, next) => {
         });
       });
     })(req, res, next);
-
-    // req.session.userId = user.id;
-    // req.session.save(() => {
-    //   return res.json({
-    //     success: true,
-    //     error: null,
-    //     data: null,
-    //   });
-    // });
-
-    // return res.json({
-    //   success: true,
-    //   error: null,
-    //   data: null,
-    // });
   } catch (error) {
     console.error(error);
     return res.status(403).send(error.message);
@@ -158,10 +158,11 @@ router.delete("/", async (req, res, next) => {
   res.send("Delete User");
 });
 
+// Check Register Data
 router.post("/check", async (req, res, next) => {
-  const query = req.query;
-
   try {
+    const query = req.query;
+
     const type = query.type;
 
     if (type !== "username" && type !== "email") {
@@ -173,8 +174,8 @@ router.post("/check", async (req, res, next) => {
     if (type === "username") {
       const { rows } = await client.query(
         `
-      SELECT * FROM public.User WHERE username = $1
-    `,
+          SELECT * FROM public.User WHERE username = $1
+        `,
         [req.body.payload]
       );
 
@@ -184,8 +185,8 @@ router.post("/check", async (req, res, next) => {
     } else if (type === "email") {
       const { rows } = await client.query(
         `
-      SELECT * FROM public.User WHERE email = $1
-    `,
+          SELECT * FROM public.User WHERE email = $1
+        `,
         [req.body.payload]
       );
 
@@ -193,6 +194,7 @@ router.post("/check", async (req, res, next) => {
         throw new Error("이미 사용하고 있는 이메일입니다.");
       }
     }
+
     client.release();
 
     return res.status(200).json({
@@ -200,11 +202,143 @@ router.post("/check", async (req, res, next) => {
       error: null,
     });
   } catch (error) {
-    console.error(error);
-    return res.status(403).json({
-      success: false,
-      error: error.message,
+    console.log(error.message);
+    return res.status(403).json({ success: false, error: error.message });
+  }
+});
+
+// Find Username
+router.post("/find/send", async (req, res, next) => {
+  try {
+    const { type } = req.query;
+    const payload = req.body.payload;
+
+    checkVerifyType(type);
+
+    const client = await db.connect();
+
+    const user = await findUserByVerification(client, {
+      type,
+      payload,
     });
+
+    const verification = await createVerification(client, {
+      type,
+      payload,
+    });
+
+    client.release();
+
+    await sendVerification(type, user, verification.code);
+
+    return res.status(200).json({
+      success: true,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(403).send({ success: false, error: error.message });
+  }
+});
+
+// Verify Code
+router.post("/find/verify", async (req, res, next) => {
+  try {
+    const { payload, code } = req.body;
+
+    const client = await db.connect();
+
+    const { rows } = await client.query(
+      `
+        SELECT * FROM public.verification WHERE payload = $1 AND code = $2
+      `,
+      [payload, code]
+    );
+
+    if (!rows.length) {
+      throw new Error("인증코드가 일치하지 않습니다.");
+    }
+
+    const verification = rows[0];
+
+    // isVerified가 client에서는 기본값이 false이기 때문에
+    validVerification(verification);
+
+    const userQuery = await client.query(
+      ` 
+        SELECT username, email, password FROM public.User WHERE email = $1
+      `,
+      [verification.payload]
+    );
+
+    if (!userQuery.rows.length) {
+      throw new Error("유저를 찾을 수 없습니다.");
+    }
+
+    return res.json({
+      success: true,
+      username: userQuery.rows[0].username,
+    });
+  } catch (error) {
+    return res.status(400).send({ success: false, error: error.message });
+  }
+});
+
+// Change Password
+router.post("/find/change", async (req, res, next) => {
+  try {
+    const { type } = req.query;
+    const { payload, verifyCode, changePassword } = req.body;
+
+    checkVerifyType(type);
+
+    const client = await db.connect();
+
+    // no error 시 인증 성공
+    const verification = await findVerification(client, {
+      type,
+      payload,
+      code: verifyCode,
+    });
+    // 이미 인증된 데이터거나 인증 만료시간이 지났을 경우 check
+    validVerification(verification);
+
+    // 인증은 1회만 가능하도록 isVerified true 해줌
+    await expireVerification(client, verification);
+
+    const salt = await bcrypt.genSalt(+process.env.PASSWORD_ROUND_LENGTH);
+    const hashed = await bcrypt.hash(changePassword, salt);
+
+    switch (type) {
+      case "email":
+        await await client.query(
+          `
+            UPDATE public.User SET password=$1 WHERE email=$2
+          `,
+          [hashed, payload]
+        );
+
+        break;
+      case "phone":
+        await client.query(
+          `
+            UPDATE public.User SET password=$1 WHERE phoneNumber=$2
+          `,
+          [hashed, payload]
+        );
+        break;
+      default:
+        throw new Error("올바르지 않은 verification type 입니다.");
+    }
+
+    client.release();
+
+    return res.status(200).json({
+      success: true,
+      error: null,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(403).send(error.message);
   }
 });
 
