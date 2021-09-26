@@ -15,34 +15,108 @@ const pool = new Pool({
 // 빌릴 때는 pool.connect() 다 끝난 후에, client.release();
 const initialize = async () => {
   const client = await pool.connect();
+
+  // Create Custom Types
   await client.query(
     `
-      CREATE TABLE IF NOT EXISTS public.User(
-        id    SERIAL     PRIMARY KEY,
-        username    TEXT    NOT NULL    UNIQUE,
-        password    TEXT    NOT NULL,
-        name        TEXT    NOT NULL,
-        "phoneNumber"   TEXT  UNIQUE,
-        "createdAt"    TIMESTAMP   NOT NULL,
-        email       TEXT    NOT NULL    UNIQUE
+    DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gender') THEN
+          CREATE TYPE gender AS ENUM('MALE', 'FEMALE', 'INTERSEX');
+        END IF;
+      END
+    $$
+    `
+  );
+
+  // Create User Table
+  await client.query(
+    `
+      CREATE TABLE IF NOT EXISTS public."User"(
+        id            SERIAL     PRIMARY KEY,
+        username      TEXT       NOT NULL    UNIQUE,
+        password      TEXT       NOT NULL,
+        name          TEXT       NOT NULL,
+        "createdAt"   TIMESTAMP  NOT NULL,
+        email         TEXT       NOT NULL    UNIQUE,
+        "phoneNumber" TEXT       UNIQUE
       )
     `
   );
 
+  // Create Verification Table
   await client.query(
     `
-    CREATE TABLE IF NOT EXISTS public.Verification(
-      id        SERIAL    PRIMARY KEY,
-      type      TEXT      NOT NULL,
-      payload   TEXT      NOT NULL,
-      code      TEXT      NOT NULL,
-      "isVerified" BOOLEAN  NOT NULL, 
-      "expiredAt" TIMESTAMP NOT NULL
+    CREATE TABLE IF NOT EXISTS public."Verification"(
+      id            SERIAL      PRIMARY KEY,
+      type          TEXT        NOT NULL,
+      payload       TEXT        NOT NULL,
+      code          TEXT        NOT NULL,
+      "isVerified"  BOOLEAN     NOT NULL, 
+      "expiredAt"   TIMESTAMP   NOT NULL
     )
     `
   );
 
-  await client.release();
+  await client.query(
+    `
+    CREATE TABLE IF NOT EXISTS public."Category"(
+      id            SERIAL      PRIMARY KEY,
+      name          TEXT        NOT NULL
+    )
+    `
+  );
+
+  await client.query(
+    `
+    CREATE TABLE IF NOT EXISTS public."ProductInfo"(
+      id            SERIAL      PRIMARY KEY,
+      color         TEXT        NOT NULL,
+      "offerGender"   gender      NOT NULL,
+      "createdAt"   TIMESTAMP   NOT NULL,
+      "updatedAt"   TIMESTAMP   NOT NULL
+    )
+    `
+  );
+
+  await client.query(
+    `
+    CREATE TABLE IF NOT EXISTS public."ProductDetail"(
+      id            SERIAL      PRIMARY KEY,
+      "createdAt"   TIMESTAMP   NOT NULL,
+      "updatedAt"   TIMESTAMP   NOT NULL
+    )
+    `
+  );
+
+  // Create Product Table
+  await client.query(
+    `
+    CREATE TABLE IF NOT EXISTS public."Product"(
+      id            SERIAL      PRIMARY KEY,
+      name          TEXT        NOT NULL,
+      price         INTEGER        NOT NULL,
+      count         INTEGER        NOT NULL,
+      sale          FLOAT,
+      "categoryId"  SERIAL,
+      "infoId"      SERIAL     NOT NULL,
+      "detailId"    SERIAL,    
+      "createdAt"   TIMESTAMP  NOT NULL,
+      "updatedAt"   TIMESTAMP  NOT NULL,
+      CONSTRAINT fk_category
+        FOREIGN KEY("categoryId")
+          REFERENCES public.Category(id),
+      CONSTRAINT fk_info
+        FOREIGN KEY("infoId")
+          REFERENCES public."ProductInfo"(id),
+      CONSTRAINT fk_detail
+        FOREIGN KEY("detailId")
+          REFERENCES public."ProductDetail"(id)
+    )
+    `
+  );
+
+  client.release();
 };
 
 initialize();
