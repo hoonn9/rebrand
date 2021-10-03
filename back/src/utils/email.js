@@ -1,7 +1,7 @@
 const mailgun = require("mailgun-js");
-const DOMAIN = process.env.MAILGUN_DOMAIN;
+const DOMAIN = "sandboxbcf7246f009b40baa71a959305c5539b.mailgun.org";
 const mg = mailgun({
-  apiKey: process.env.MAILGUN_API_KEY,
+  apiKey: "066bd0f6ae6a5bfd1ed041225eee6dbc-156db0f1-ea268b14",
   domain: DOMAIN,
 });
 
@@ -14,8 +14,8 @@ const sendEmail = async ({ to, subject, text }) => {
   };
 
   try {
-    // const data = await mg.messages().send(payload);
-    // return data;
+    const data = await mg.messages().send(payload);
+    return data;
   } catch (error) {
     console.log(error);
     throw new Error(error);

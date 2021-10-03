@@ -3,11 +3,12 @@ import axios from 'axios';
 import React, { useCallback, useState } from 'react';
 import { useHistory } from 'react-router';
 import { toast } from 'react-toastify';
+
 import { Container, AccountForm, InputWrapper, FindForm, ButtonWrapper, FindBtn } from './styles';
 
 const FindPassword = () => {
   const history = useHistory();
-  const email = useInput('xognstltl@naver.com');
+  const email = useInput('fujifilm0517@naver.com');
   const verifyCode = useInput();
   const foundUsername = useInput();
 
@@ -22,6 +23,7 @@ const FindPassword = () => {
       e.preventDefault();
 
       try {
+        // http://localhost:3000/api?query1=data&query2=data2"
         const { data } = await axios.post('http://localhost:4190/api/users/find/send?type=email', {
           payload: email.value,
         });
@@ -86,16 +88,14 @@ const FindPassword = () => {
         toast('비밀번호가 서로 일치하지 않습니다.');
         return;
       }
-
       try {
         const { data } = await axios.post('http://localhost:4190/api/users/find/change?type=email', {
           payload: email.value,
           verifyCode: verifyCode.value,
           changePassword: changePassword.value,
         });
-
         if (data?.success) {
-          toast('비밀번호 변경이 완료 되었습니다. 다시 로그인하세요.');
+          toast('비밀번호가 변경 되었습니다. 다시 로그인해주세요.');
           history.push('/login');
           return;
         }
@@ -122,13 +122,13 @@ const FindPassword = () => {
               <input type="text" value={verifyCode.value} onChange={verifyCode.onChange} />
             </InputWrapper>
             <button onClick={onClickVerifyCode}>인증</button>
-            {isVerified && <p>인증 되었습니다.</p>}
+            {isVerified && <p>인증되었습니다.</p>}
             <InputWrapper>
               <label>Change Password</label>
               <input type="password" value={changePassword.value} onChange={changePassword.onChange} />
             </InputWrapper>
             <InputWrapper>
-              <label>Confirm Password</label>
+              <label>ReChange Password</label>
               <input type="password" value={reChangePassword.value} onChange={reChangePassword.onChange} />
             </InputWrapper>
             <ButtonWrapper>

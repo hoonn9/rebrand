@@ -1,12 +1,8 @@
 const router = require("express").Router();
 const db = require("../db");
-const dayjs = require("dayjs");
 const { emailRegex } = require("../utils/regex.js");
-const bcrypt = require("bcrypt");
-
 const passport = require("passport");
 const { IsLoggedIn } = require("../middlewares/auth");
-const { sendEmail } = require("../utils/email");
 
 const {
   findUserByVerification,
@@ -16,42 +12,35 @@ const {
   checkVerifyType,
   expireVerification,
   validVerification,
-} = require("../verification/verification");
+} = require("../verification/verification.js");
+
+const { bcryptHashedJoin, changeHashed } = require("../useBcrypt/bcryptHashed");
+const { isExistUser, getUser } = require("../user/user");
+const { query } = require("../common/query");
+const sql = require("../db/sql");
 
 // JOIN USER
 router.post("/", async (req, res, next) => {
-  const now = dayjs().format();
-
   try {
     // email check
     if (!emailRegex.test(req.body.email)) {
       throw new Error("email 형식이 올바르지 않습니다. 확인해주세요.");
     }
 
-    // use bcrypt
-    const salt = await bcrypt.genSalt(+process.env.PASSWORD_ROUND_LENGTH);
-    const hashed = await bcrypt.hash(req.body.password, salt);
-
     const client = await db.connect();
 
-    const isExist = await client.query(
+    const { rows } = await client.query(
       `
-        SELECT * FROM public.User WHERE username = $1 OR email = $2
+        SELECT * FROM public."User" WHERE username = $1 OR email = $2
       `,
       [req.body.username, req.body.email]
     );
 
-    if (isExist.rows.length) {
+    if (rows.length) {
       throw new Error("이미 사용하고 있는 아이디 또는 이메일입니다.");
     }
 
-    await client.query(
-      `
-        INSERT INTO public.User (username, password, name, "createdAt", email )
-        VALUES ($1, $2, $3, $4, $5)
-      `,
-      [req.body.username, hashed, req.body.name, now, req.body.email]
-    );
+    await bcryptHashedJoin(client, req);
 
     client.release();
 
@@ -91,19 +80,20 @@ router.get("/:id", async (req, res, next) => {
 
     const { id } = req.params;
 
-    const result = await client.query(
+    const { rows } = await client.query(
       `
-        SELECT id, name, email, "createdAt" FROM public.User WHERE id = $1
+        SELECT id, name, email, "createdAt", "phoneNumber" FROM public."User" WHERE id = $1
       `,
       [parseInt(id)]
     );
+    console.log(rows);
 
     client.release();
 
-    if (result.rows.length < 1) {
+    if (!rows.length) {
       return res.status(404).send("존재하지 않는 유저입니다.");
     }
-    return res.json(result.rows[0]);
+    return res.json(result);
   } catch (error) {
     console.error(error);
     return res.status(403).send(error.message);
@@ -129,26 +119,31 @@ router.post("/login", async (req, res, next) => {
         }
 
         const client = await db.connect();
-        const { rows } = await client.query(
-          `
-        SELECT id, email, name, "createdAt" FROM public.user WHERE id = $1 
-      `,
-          [user.id]
-        );
 
-        console.log(rows);
+        try {
+          const rows = await query(
+            client,
+            sql.user.loginUser,
+            [user.id],
+            (rows) => !rows.length
+          );
 
-        client.release();
+          console.log(rows);
 
-        return res.status(200).json({
-          success: true,
-          error: null,
-          data: rows[0],
-        });
+          client.release();
+
+          return res.status(200).json({
+            success: true,
+            error: null,
+            data: rows[0],
+          });
+        } catch (error) {
+          return next(error);
+        }
       });
     })(req, res, next);
   } catch (error) {
-    console.error(error);
+    // console.error(error);
     return res.status(403).send(error.message);
   }
 });
@@ -172,27 +167,19 @@ router.post("/check", async (req, res, next) => {
     const client = await db.connect();
 
     if (type === "username") {
-      const { rows } = await client.query(
-        `
-          SELECT * FROM public.User WHERE username = $1
-        `,
-        [req.body.payload]
+      const rows = await query(
+        client,
+        sql.user.checkByUsername,
+        [req.body.payload],
+        (rows) => !rows
       );
-
-      if (rows[0]) {
-        throw new Error("이미 사용하고 있는 아이디입니다.");
-      }
     } else if (type === "email") {
-      const { rows } = await client.query(
-        `
-          SELECT * FROM public.User WHERE email = $1
-        `,
-        [req.body.payload]
+      const rows = await query(
+        client,
+        sql.user.checkByEmail,
+        [req.body.payload],
+        (rows) => !rows
       );
-
-      if (rows[0]) {
-        throw new Error("이미 사용하고 있는 이메일입니다.");
-      }
     }
 
     client.release();
@@ -211,6 +198,7 @@ router.post("/check", async (req, res, next) => {
 router.post("/find/send", async (req, res, next) => {
   try {
     const { type } = req.query;
+
     const payload = req.body.payload;
 
     checkVerifyType(type);
@@ -218,13 +206,13 @@ router.post("/find/send", async (req, res, next) => {
     const client = await db.connect();
 
     const user = await findUserByVerification(client, {
-      type,
-      payload,
+      type: type,
+      payload: payload,
     });
 
     const verification = await createVerification(client, {
-      type,
-      payload,
+      type: type,
+      payload: payload,
     });
 
     client.release();
@@ -247,32 +235,23 @@ router.post("/find/verify", async (req, res, next) => {
 
     const client = await db.connect();
 
-    const { rows } = await client.query(
-      `
-        SELECT * FROM public.verification WHERE payload = $1 AND code = $2
-      `,
-      [payload, code]
+    const rows = await query(
+      client,
+      sql.verify.find,
+      [payload, code],
+      (rows) => !rows
     );
-
-    if (!rows.length) {
-      throw new Error("인증코드가 일치하지 않습니다.");
-    }
 
     const verification = rows[0];
 
-    // isVerified가 client에서는 기본값이 false이기 때문에
     validVerification(verification);
 
-    const userQuery = await client.query(
-      ` 
-        SELECT username, email, password FROM public.User WHERE email = $1
-      `,
-      [verification.payload]
+    const userQuery = await query(
+      client,
+      sql.user.findByEmail(["username", "email", "password"]),
+      [verification.payload],
+      (rows) => !rows
     );
-
-    if (!userQuery.rows.length) {
-      throw new Error("유저를 찾을 수 없습니다.");
-    }
 
     return res.json({
       success: true,
@@ -293,42 +272,22 @@ router.post("/find/change", async (req, res, next) => {
 
     const client = await db.connect();
 
-    // no error 시 인증 성공
+    // no error 시 인증성공
     const verification = await findVerification(client, {
       type,
       payload,
       code: verifyCode,
     });
-    // 이미 인증된 데이터거나 인증 만료시간이 지났을 경우 check
+
     validVerification(verification);
 
-    // 인증은 1회만 가능하도록 isVerified true 해줌
     await expireVerification(client, verification);
 
-    const salt = await bcrypt.genSalt(+process.env.PASSWORD_ROUND_LENGTH);
-    const hashed = await bcrypt.hash(changePassword, salt);
-
-    switch (type) {
-      case "email":
-        await await client.query(
-          `
-            UPDATE public.User SET password=$1 WHERE email=$2
-          `,
-          [hashed, payload]
-        );
-
-        break;
-      case "phone":
-        await client.query(
-          `
-            UPDATE public.User SET password=$1 WHERE phoneNumber=$2
-          `,
-          [hashed, payload]
-        );
-        break;
-      default:
-        throw new Error("올바르지 않은 verification type 입니다.");
-    }
+    await changeHashed(client, {
+      type: type,
+      payload: payload,
+      changePassword: changePassword,
+    });
 
     client.release();
 
